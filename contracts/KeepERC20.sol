@@ -12,8 +12,6 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IKeepERC20.sol";
 import "./queue/PriorityQueue.sol";
 
-// TODO: approve check
-
 /// @dev Non-trasnsferable.
 /// @dev Register Chainlink Automation via [https://automation.chain.link/mumbai].
 contract KeepERC20 is
@@ -33,14 +31,16 @@ contract KeepERC20 is
     mapping(address => uint256[]) internal _tasksOf;
 
     uint256 internal constant _DENOMINATOR = 10000;
-    uint256 public feeRatio;
+    uint256 public scheduleFeeRatio;
+    uint256 public recoveryFeeRatio;
     address public feeTo;
 
     //============ Initialize ============//
 
     constructor(
         address originalToken_,
-        uint256 feeRatio_,
+        uint256 scheduleFeeRatio_,
+        uint256 recoverFeeRatio_,
         address feeTo_
     )
         ERC20(
@@ -49,7 +49,8 @@ contract KeepERC20 is
         )
     {
         _originalToken = IERC20(originalToken_);
-        feeRatio = feeRatio_;
+        scheduleFeeRatio = scheduleFeeRatio_;
+        recoveryFeeRatio = recoverFeeRatio_;
         feeTo = feeTo_;
     }
 
@@ -57,9 +58,9 @@ contract KeepERC20 is
         return address(_originalToken);
     }
 
-    // function setFeeRatio() onlyOwner
+    // TODO: function setFeeRatio() onlyOwner
 
-    // function setFeeTo() onlyOwner
+    // TODO: function setFeeTo() onlyOwner
 
     //============ View Functions ============//
 
@@ -67,8 +68,33 @@ contract KeepERC20 is
         return _tasks[tid];
     }
 
-    function tasksOf(address account) external view returns (uint256[] memory) {
-        return _tasksOf[account];
+    function tasksOf(address account)
+        external
+        view
+        returns (uint256[] memory tids)
+    {
+        uint256[] memory tidsOf = _tasksOf[account];
+        uint256 count;
+        for (uint256 i = 0; i < tidsOf.length; ) {
+            uint256 tid = tidsOf[i];
+            if (_tasks[tid].active) {
+                tids[count] = tid;
+                unchecked {
+                    count++;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
+
+        // return
+        if (count > 0) {
+            // resize memory
+            assembly {
+                mstore(tids, count)
+            }
+        }
     }
 
     //============ Wrap & Unwrap ============//
@@ -193,13 +219,16 @@ contract KeepERC20 is
         uint256 interval
     ) internal returns (uint256 tid) {
         uint256 atBlock = block.number + interval;
-        uint256 fee = (amount * feeRatio) / _DENOMINATOR;
+
+        // fee
+        uint256 fee;
+        if (scheduleFeeRatio != 0 && feeTo != address(0)) {
+            fee = (amount * scheduleFeeRatio) / _DENOMINATOR;
+            _originalToken.transferFrom(from, feeTo, fee);
+        }
 
         // wrap
         _wrap(from, from, amount - fee); // send to `to` later.
-
-        // fee
-        _originalToken.transferFrom(from, feeTo, fee);
 
         // task
         Heap.Node memory node = insert(atBlock);
@@ -210,7 +239,7 @@ contract KeepERC20 is
             receiver: to,
             amount: amount - fee,
             extraField: extra,
-            executed: false
+            active: true
         });
         _tasksOf[from].push(tid);
     }
@@ -219,7 +248,7 @@ contract KeepERC20 is
         internal
         returns (bytes memory returndata)
     {
-        Heap.Node memory node = getById(tid);
+        Heap.Node memory node = extractById(tid);
         require(
             node.priority <= block.number,
             "KeepERC20::_executeScheduledTransfer: Not yet."
@@ -230,7 +259,7 @@ contract KeepERC20 is
             "KeepERC20::_executeScheduledTransfer: Type invalid."
         );
         require(
-            !task.executed,
+            task.active,
             "KeepERC20::_executeScheduledTransfer: Already executed."
         );
 
@@ -248,15 +277,138 @@ contract KeepERC20 is
         }
 
         // task
-        task.executed = true;
-        extractById(tid);
+        task.active = false;
     }
 
     //============ KeepERC20 Functions: Recoverable Transfer ============//
 
-    function recoverableTransfer() external {}
+    function queueRecoverableTransfer(
+        address to,
+        uint256 amount,
+        uint256 interval
+    ) external returns (bool) {
+        _queueRecoverableTransfer(_msgSender(), to, amount, "", interval);
+        return true;
+    }
 
-    function recoverableTransferFrom() external {}
+    function queueRecoverableTransferWithExtra(
+        address to,
+        uint256 amount,
+        bytes memory extra,
+        uint256 interval
+    ) external returns (bool) {
+        _queueRecoverableTransfer(_msgSender(), to, amount, extra, interval);
+        return true;
+    }
+
+    function queueRecoverableTransferFrom(
+        address from,
+        address to,
+        uint256 amount,
+        uint256 interval
+    ) external returns (bool) {
+        address spender = _msgSender();
+        _spendAllowance(from, spender, amount);
+        _queueRecoverableTransfer(from, to, amount, "", interval);
+        return true;
+    }
+
+    function queueRecoverableTransferFromWithExtra(
+        address from,
+        address to,
+        uint256 amount,
+        bytes memory extra,
+        uint256 interval
+    ) external returns (bool) {
+        address spender = _msgSender();
+        _spendAllowance(from, spender, amount);
+        _queueRecoverableTransfer(from, to, amount, extra, interval);
+        return true;
+    }
+
+    function executeRecoverableTransfer(uint256 tid)
+        external
+        returns (bytes memory returndata)
+    {
+        return _executeRecoverableTransfer(tid);
+    }
+
+    function _queueRecoverableTransfer(
+        address from,
+        address to,
+        uint256 amount,
+        bytes memory extra,
+        uint256 interval
+    ) internal returns (uint256 tid) {
+        uint256 atBlock = block.number + interval;
+
+        // fee
+        uint256 fee;
+        if (recoveryFeeRatio != 0 && feeTo != address(0)) {
+            fee = (amount * recoveryFeeRatio) / _DENOMINATOR;
+            _originalToken.transferFrom(from, feeTo, fee);
+        }
+
+        // wrap
+        _wrap(from, to, amount - fee); // send to `to` immediately.
+
+        // task
+        Heap.Node memory node = insert(atBlock);
+        tid = node.id;
+        _tasks[tid] = Task({
+            taskType: TaskType.Recovery,
+            sender: from,
+            receiver: to,
+            amount: amount - fee,
+            extraField: extra,
+            active: true
+        });
+        _tasksOf[from].push(tid);
+    }
+
+    /// @notice Receiver also be able to get tokens through `unwrap()` directly.
+    /// However, `upwrap()` does not inactive `active`.
+    /// In that case, sender still be able to claim `amount` tokens.
+    function _executeRecoverableTransfer(uint256 tid)
+        internal
+        returns (bytes memory returndata)
+    {
+        Heap.Node memory node = extractById(tid);
+        Task memory task = _tasks[tid];
+        require(
+            task.taskType == TaskType.Recovery,
+            "KeepERC20::_executeRecoverableTransfer: Type invalid."
+        );
+        require(
+            task.active,
+            "KeepERC20::_executeRecoverableTransfer: Already executed."
+        );
+
+        address msgSender = _msgSender();
+        if (msgSender == task.receiver) {
+            // unwrap
+            _unwrap(msgSender, msgSender, task.amount);
+
+            // call w/ extra field
+            if (task.extraField.length != 0) {
+                bool success;
+                (success, returndata) = task.receiver.call(task.extraField);
+                require(
+                    success,
+                    "KeepERC20::_executeScheduledTransfer: Fail calling."
+                );
+            }
+
+            // task
+            task.active = false;
+        } else if (node.priority <= block.number) {
+            // unwrap
+            _unwrap(task.receiver, task.sender, task.amount); // recover
+
+            // task
+            task.active = false;
+        }
+    }
 
     //============ KeepERC20 Functions: Expirable Approve ============//
 
@@ -264,7 +416,8 @@ contract KeepERC20 is
 
     //============ Automation ============//
 
-    // Example: 0-to-10: 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a
+    // Example: 0-to-10:
+    // 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a
     function pagination(uint256 lowerBound, uint256 upperBound)
         external
         pure
@@ -297,6 +450,7 @@ contract KeepERC20 is
         uint256[] memory tids = new uint256[](upperBound - lowerBound);
         uint256 blockNumber = block.number;
 
+        // TODO: approve check
         // check
         for (uint256 i = lowerBound; i < upperBound; ) {
             if (dumps[i].priority <= blockNumber) {
@@ -327,11 +481,12 @@ contract KeepERC20 is
         for (uint256 i = 0; i < tids.length; ) {
             uint256 tid = tids[i];
 
+            // TODO: try
             if (_tasks[tid].taskType == TaskType.Schedule) {
-                _executeScheduledTransfer(tid);
-            } else if (_tasks[tid].taskType == TaskType.Expire) {
-                //
+                _executeScheduledTransfer(tid); // additional check inside
             } else if (_tasks[tid].taskType == TaskType.Recovery) {
+                _executeRecoverableTransfer(tid); // additional check inside
+            } else if (_tasks[tid].taskType == TaskType.Expire) {
                 //
             } else {
                 revert("KeepERC20::performUpkeep: Never happen.");

@@ -5,8 +5,8 @@ pragma solidity 0.8.17;
 interface IKeepERC20 {
     enum TaskType {
         Schedule,
-        Expire,
-        Recovery
+        Recovery,
+        Expire
     }
 
     struct Task {
@@ -15,6 +15,6 @@ interface IKeepERC20 {
         address receiver;
         uint256 amount;
         bytes extraField;
-        bool executed;
+        bool active;
     }
 }

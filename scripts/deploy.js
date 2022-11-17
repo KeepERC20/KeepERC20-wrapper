@@ -11,7 +11,12 @@ async function deploy() {
 
   process.stdout.write("Deploy KeepToken");
   const KeepToken = await hre.ethers.getContractFactory("KeepERC20");
-  contract.keepToken = await KeepToken.deploy(contract.token.address, 5, signer.fee.address);
+  contract.keepToken = await KeepToken.deploy(
+    contract.token.address,
+    5,
+    10,
+    signer.fee.address
+  );
   await contract.keepToken.deployed();
   console.log(":\t", contract.keepToken.address);
 
