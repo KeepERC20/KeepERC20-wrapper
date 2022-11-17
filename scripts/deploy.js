@@ -1,30 +1,37 @@
-// We require the Hardhat Runtime Environment explicitly here. This is optional
-// but useful for running the script in a standalone fashion through `node <script>`.
-//
-// You can also run a script with `npx hardhat run <script>`. If you do that, Hardhat
-// will compile your contracts, add the Hardhat Runtime Environment's members to the
-// global scope, and execute the script.
 const hre = require("hardhat");
+const fs = require('fs');
+const { signer, contract, set } = require('./set');
 
-async function main() {
-  const currentTimestampInSeconds = Math.round(Date.now() / 1000);
-  const ONE_YEAR_IN_SECS = 365 * 24 * 60 * 60;
-  const unlockTime = currentTimestampInSeconds + ONE_YEAR_IN_SECS;
+async function deploy() {
+  process.stdout.write("Deploy Token");
+  const Token = await hre.ethers.getContractFactory("TestERC20");
+  contract.token = await Token.deploy();
+  await contract.token.deployed();
+  console.log(":\t\t", contract.token.address);
 
-  const lockedAmount = hre.ethers.utils.parseEther("1");
+  process.stdout.write("Deploy KeepToken");
+  const KeepToken = await hre.ethers.getContractFactory("KeepERC20");
+  contract.keepToken = await KeepToken.deploy(contract.token.address, 5, signer.fee.address);
+  await contract.keepToken.deployed();
+  console.log(":\t", contract.keepToken.address);
 
-  const Lock = await hre.ethers.getContractFactory("Lock");
-  const lock = await Lock.deploy(unlockTime, { value: lockedAmount });
-
-  await lock.deployed();
-
-  console.log(
-    `Lock with 1 ETH and unlock timestamp ${unlockTime} deployed to ${lock.address}`
-  );
+  fs.writeFileSync("address.json", JSON.stringify({
+    "Owner": signer.owner.address,
+    "User1": signer.user1.address,
+    "Fee": signer.fee.address,
+    "Token": contract.token.address,
+    "KeepToken": contract.keepToken.address
+  }, null, 4));
 }
 
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
+async function main() {
+  console.log("\n<Set>");
+  await set();
+
+  console.log("\n<Deploy>");
+  await deploy();
+}
+
 main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
