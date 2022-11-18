@@ -10,7 +10,9 @@ import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "./interfaces/IKeepERC20.sol";
+import "./interfaces/IWallet.sol";
 import "./queue/PriorityQueue.sol";
+import "./Wallet.sol";
 
 /// @dev Non-trasnsferable.
 /// @dev Register Chainlink Automation via [https://automation.chain.link/mumbai].
@@ -21,19 +23,20 @@ contract KeepERC20 is
     ERC20,
     Ownable
 {
-    using SafeERC20 for ERC20;
+    using SafeERC20 for IERC20;
 
     //============ Params ============//
 
     IERC20 internal _originalToken;
 
-    mapping(uint256 => Task) internal _tasks;
-    mapping(address => uint256[]) internal _tasksOf;
-
     uint256 internal constant _DENOMINATOR = 10000;
     uint256 public scheduleFeeRatio;
     uint256 public recoveryFeeRatio;
     address public feeTo;
+
+    mapping(uint256 => Task) internal _tasks;
+    mapping(address => uint256[]) internal _tasksOf;
+    mapping(address => IWallet) internal _wallets;
 
     //============ Initialize ============//
 
@@ -58,9 +61,42 @@ contract KeepERC20 is
         return address(_originalToken);
     }
 
-    // TODO: function setFeeRatio() onlyOwner
+    function setScheduleFeeRatio(uint256 newScheduleFeeRatio_)
+        external
+        onlyOwner
+    {
+        uint256 prev = scheduleFeeRatio;
+        scheduleFeeRatio = newScheduleFeeRatio_;
 
-    // TODO: function setFeeTo() onlyOwner
+        emit SetScheduleFeeRatio(prev, scheduleFeeRatio);
+    }
+
+    function setRecoveryFeeRatio(uint256 newRecoveryFeeRatio_)
+        external
+        onlyOwner
+    {
+        uint256 prev = recoveryFeeRatio;
+        recoveryFeeRatio = newRecoveryFeeRatio_;
+
+        emit SetRecoveryFeeRatio(prev, recoveryFeeRatio);
+    }
+
+    function setFeeTo(address newFeeTo_) external onlyOwner {
+        address prev = feeTo;
+        feeTo = newFeeTo_;
+
+        emit SetFeeTo(prev, feeTo);
+    }
+
+    //============ Modifiers ============//
+
+    modifier onlySender(uint256 tid) {
+        require(
+            _msgSender() == _tasks[tid].sender,
+            "KeepERC20::onlySender: Only sender."
+        );
+        _;
+    }
 
     //============ View Functions ============//
 
@@ -69,6 +105,15 @@ contract KeepERC20 is
     }
 
     function tasksOf(address account)
+        external
+        view
+        returns (uint256[] memory tids)
+    {
+        tids = _tasksOf[account];
+    }
+
+    /// @notice Returns active tasks only.
+    function activeTasksOf(address account)
         external
         view
         returns (uint256[] memory tids)
@@ -97,6 +142,10 @@ contract KeepERC20 is
         }
     }
 
+    function walletOf(address account) external view returns (address) {
+        return address(_wallets[account]);
+    }
+
     //============ Wrap & Unwrap ============//
 
     function wrap(address to, uint256 amount) external returns (bool) {
@@ -109,8 +158,7 @@ contract KeepERC20 is
         return true;
     }
 
-    // TODO: test
-    /// @dev Owner must approve ERC20 to address(this).
+    /// @dev Owner must approve ERC20 tokens to `address(this)`.
     function wrapFrom(
         address from,
         address to,
@@ -122,7 +170,6 @@ contract KeepERC20 is
         return true;
     }
 
-    // TODO: test
     function unwrapFrom(
         address from,
         address to,
@@ -139,8 +186,10 @@ contract KeepERC20 is
         address to,
         uint256 amount
     ) internal {
-        _originalToken.transferFrom(from, address(this), amount);
+        _originalToken.safeTransferFrom(from, address(this), amount);
         _mint(to, amount);
+
+        emit Wrap(from, to, amount);
     }
 
     function _unwrap(
@@ -149,12 +198,56 @@ contract KeepERC20 is
         uint256 amount
     ) internal {
         _burn(from, amount);
-        _originalToken.transfer(to, amount);
+        _originalToken.safeTransfer(to, amount);
+
+        emit Wrap(from, to, amount);
+    }
+
+    //============ Wallet Functions ============//
+
+    function createWallet() external returns (address) {
+        address msgSender = _msgSender();
+        require(
+            address(_wallets[msgSender]) == address(0),
+            "KeepERC20::createWallet: already exists."
+        );
+        return _createWallet(msgSender);
+    }
+
+    function _createWallet(address account) internal returns (address wallet) {
+        _wallets[account] = new Wallet();
+        wallet = address(_wallets[account]);
+
+        emit CreateWallet(account, wallet);
+    }
+
+    function revokeWallet() external returns (address) {
+        address msgSender = _msgSender();
+        address wallet = address(_wallets[msgSender]);
+        _wallets[msgSender].revoke();
+        delete _wallets[msgSender];
+        return wallet;
+    }
+
+    function callWallet(
+        address target,
+        uint256 value,
+        string memory signature,
+        bytes memory data
+    ) external returns (bool success, bytes memory returnData) {
+        address msgSender = _msgSender();
+        return _wallets[msgSender].call(target, value, signature, data);
     }
 
     //============ KeepERC20 Functions ============//
 
-    function cancle(uint256 tid) external returns (bool) {}
+    function cancel(uint256 tid) external onlySender(tid) returns (bool) {
+        _tasks[tid].active = false;
+
+        emit CancelTask(_msgSender(), tid);
+
+        return true;
+    }
 
     //============ KeepERC20 Functions: Scheduled Transfer ============//
 
@@ -224,7 +317,7 @@ contract KeepERC20 is
         uint256 fee;
         if (scheduleFeeRatio != 0 && feeTo != address(0)) {
             fee = (amount * scheduleFeeRatio) / _DENOMINATOR;
-            _originalToken.transferFrom(from, feeTo, fee);
+            _originalToken.safeTransferFrom(from, feeTo, fee);
         }
 
         // wrap
@@ -242,6 +335,8 @@ contract KeepERC20 is
             active: true
         });
         _tasksOf[from].push(tid);
+
+        emit QueueScheduledTransfer(tid, from, to, amount, extra, interval);
     }
 
     function _executeScheduledTransfer(uint256 tid)
@@ -272,12 +367,14 @@ contract KeepERC20 is
             (success, returndata) = task.receiver.call(task.extraField);
             require(
                 success,
-                "KeepERC20::_executeScheduledTransfer: Fail calling."
+                "KeepERC20::_executeScheduledTransfer: Fail to calling."
             );
         }
 
         // task
         task.active = false;
+
+        emit ExecuteScheduledTransfer(tid);
     }
 
     //============ KeepERC20 Functions: Recoverable Transfer ============//
@@ -346,7 +443,7 @@ contract KeepERC20 is
         uint256 fee;
         if (recoveryFeeRatio != 0 && feeTo != address(0)) {
             fee = (amount * recoveryFeeRatio) / _DENOMINATOR;
-            _originalToken.transferFrom(from, feeTo, fee);
+            _originalToken.safeTransferFrom(from, feeTo, fee);
         }
 
         // wrap
@@ -363,7 +460,9 @@ contract KeepERC20 is
             extraField: extra,
             active: true
         });
-        _tasksOf[from].push(tid);
+        _tasksOf[to].push(tid);
+
+        emit QueueRecoverableTransfer(tid, from, to, amount, extra, interval);
     }
 
     /// @notice Receiver also be able to get tokens through `unwrap()` directly.
@@ -395,7 +494,7 @@ contract KeepERC20 is
                 (success, returndata) = task.receiver.call(task.extraField);
                 require(
                     success,
-                    "KeepERC20::_executeScheduledTransfer: Fail calling."
+                    "KeepERC20::_executeScheduledTransfer: Fail to calling."
                 );
             }
 
@@ -408,16 +507,114 @@ contract KeepERC20 is
             // task
             task.active = false;
         }
+
+        emit ExecuteRecoverableTransfer(tid);
     }
 
     //============ KeepERC20 Functions: Expirable Approve ============//
 
-    function expirableApprove() external {}
+    function queueExpirableApprove(
+        address spender,
+        uint256 amount,
+        uint256 interval
+    ) external returns (uint256 tid) {
+        return _queueExpirableApprove(_msgSender(), spender, amount, interval);
+    }
+
+    /// @dev Uses `increaseAllowance()` instead of `approve()`.
+    function _queueExpirableApprove(
+        address owner,
+        address spender,
+        uint256 amount,
+        uint256 interval
+    ) internal returns (uint256 tid) {
+        if (address(_wallets[owner]) == address(0)) {
+            _createWallet(owner);
+        }
+
+        // increase allowance
+        IWallet wallet = _wallets[owner];
+        (bool success, ) = wallet.call(
+            address(_originalToken),
+            0,
+            "increaseAllowance(address,uint256)",
+            abi.encode(spender, amount)
+        );
+        require(
+            success,
+            "KeepERC20::_queueExpirableApprove: Fail to `call` wallet."
+        );
+
+        uint256 atBlock = block.number + interval; // expire at
+
+        // task
+        Heap.Node memory node = insert(atBlock);
+        tid = node.id;
+        _tasks[tid] = Task({
+            taskType: TaskType.Expire,
+            sender: owner, // _wallets[owner]
+            receiver: spender,
+            amount: amount,
+            extraField: "",
+            active: true
+        });
+        _tasksOf[owner].push(tid);
+
+        emit QueueExpirableApprove(tid, owner, spender, amount, interval);
+    }
+
+    function executeExpirableApprove(uint256 tid)
+        external
+        returns (bytes memory returndata)
+    {
+        return _executeExpirableApprove(tid);
+    }
+
+    /// @dev Uses `decreaseAllowance()`.
+    function _executeExpirableApprove(uint256 tid)
+        internal
+        returns (bytes memory returndata)
+    {
+        Heap.Node memory node = extractById(tid);
+        require(
+            node.priority <= block.number,
+            "KeepERC20::_executeExpirableApprove: Not yet."
+        );
+        Task memory task = _tasks[tid];
+        require(
+            task.taskType == TaskType.Expire,
+            "KeepERC20::_executeExpirableApprove: Type invalid."
+        );
+        require(
+            task.active,
+            "KeepERC20::_executeExpirableApprove: Already executed."
+        );
+
+        // decrease allowance
+        IWallet wallet = _wallets[task.sender];
+        bool success;
+        (success, returndata) = wallet.call(
+            address(_originalToken),
+            0,
+            "decreaseAllowance(address,uint256)",
+            abi.encode(task.receiver, task.amount)
+        );
+        require(
+            success,
+            "KeepERC20::_executeExpirableApprove: Fail to `call` wallet."
+        );
+
+        // task
+        task.active = false;
+
+        emit ExecuteExpirableApprove(tid);
+    }
 
     //============ Automation ============//
 
     // Example: 0-to-10:
     // 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a
+    /// @dev Pagination for multiple upkeeps.
     function pagination(uint256 lowerBound, uint256 upperBound)
         external
         pure
@@ -487,7 +684,7 @@ contract KeepERC20 is
             } else if (_tasks[tid].taskType == TaskType.Recovery) {
                 _executeRecoverableTransfer(tid); // additional check inside
             } else if (_tasks[tid].taskType == TaskType.Expire) {
-                //
+                _executeExpirableApprove(tid); // additional check inside
             } else {
                 revert("KeepERC20::performUpkeep: Never happen.");
             }
