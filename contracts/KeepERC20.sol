@@ -613,6 +613,9 @@ contract KeepERC20 is
         emit ExecuteExpirableApprove(tid);
     }
 
+    //============ TODO: KeepERC20 Functions: Recoverable Wallet ============//
+    // In case of private key loss
+
     //============ Automation ============//
 
     // Example: 0-to-10:
