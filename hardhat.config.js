@@ -26,6 +26,7 @@ module.exports = {
         accounts: [
           process.env.PRIVATE_KEY_OWNER,
           process.env.PRIVATE_KEY_USER_1,
+          process.env.PRIVATE_KEY_USER_2,
           process.env.PRIVATE_KEY_FEE,
         ],
       },
@@ -35,6 +36,7 @@ module.exports = {
       accounts: [
         process.env.PRIVATE_KEY_OWNER,
         process.env.PRIVATE_KEY_USER_1,
+        process.env.PRIVATE_KEY_USER_2,
         process.env.PRIVATE_KEY_FEE,
       ],
     },
@@ -43,6 +45,7 @@ module.exports = {
       accounts: [
         process.env.PRIVATE_KEY_OWNER,
         process.env.PRIVATE_KEY_USER_1,
+        process.env.PRIVATE_KEY_USER_2,
         process.env.PRIVATE_KEY_FEE,
       ],
     },
