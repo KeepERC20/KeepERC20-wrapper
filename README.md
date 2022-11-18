@@ -4,19 +4,19 @@
 $ npm install
 ```
 
-# Set `.env`
+## Set `.env`
 
 and/or `.env.test` for test environment.
 
 Now we can use pre-defined values as environment variable, with a prefix `dotenv -e <ENV> --`. For example, `dotenv -e .env.test --`.
 
-# Run Node
+## Run Node
 
 ```bash
 $ dotenv -e .env.test -- npx hardhat node --network hardhat
 ```
 
-# Deploy
+## Deploy
 
 ```bash
 $ dotenv -e .env -- npx hardhat run scripts/deploy.js --network localhost
