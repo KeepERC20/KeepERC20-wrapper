@@ -41,6 +41,7 @@ contract KeepERC20 is
     //============ Initialize ============//
 
     constructor(
+        address owner,
         address originalToken_,
         uint256 scheduleFeeRatio_,
         uint256 recoverFeeRatio_,
@@ -55,6 +56,8 @@ contract KeepERC20 is
         scheduleFeeRatio = scheduleFeeRatio_;
         recoveryFeeRatio = recoverFeeRatio_;
         feeTo = feeTo_;
+
+        transferOwnership(owner);
     }
 
     function token() external view returns (address) {
