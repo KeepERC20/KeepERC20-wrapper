@@ -116,31 +116,19 @@ contract KeepERC20 is
     }
 
     /// @notice Returns active tasks only.
+    /// @dev Zero means inactive tid.
     function activeTasksOf(address account)
         external
         view
         returns (uint256[] memory tids)
     {
-        uint256[] memory tidsOf = _tasksOf[account];
-        uint256 count;
-        for (uint256 i = 0; i < tidsOf.length; ) {
-            uint256 tid = tidsOf[i];
-            if (_tasks[tid].active) {
-                tids[count] = tid;
-                unchecked {
-                    count++;
-                }
+        tids = _tasksOf[account];
+        for (uint256 i = 0; i < tids.length; ) {
+            if (!_tasks[tids[i]].active) {
+                tids[i] = 0;
             }
             unchecked {
                 ++i;
-            }
-        }
-
-        // return
-        if (count > 0) {
-            // resize memory
-            assembly {
-                mstore(tids, count)
             }
         }
     }
@@ -351,7 +339,7 @@ contract KeepERC20 is
             node.priority <= block.number,
             "KeepERC20::_executeScheduledTransfer: Not yet."
         );
-        Task memory task = _tasks[tid];
+        Task storage task = _tasks[tid];
         require(
             task.taskType == TaskType.Schedule,
             "KeepERC20::_executeScheduledTransfer: Type invalid."
@@ -476,7 +464,7 @@ contract KeepERC20 is
         returns (bytes memory returndata)
     {
         Heap.Node memory node = extractById(tid);
-        Task memory task = _tasks[tid];
+        Task storage task = _tasks[tid];
         require(
             task.taskType == TaskType.Recovery,
             "KeepERC20::_executeRecoverableTransfer: Type invalid."
@@ -583,7 +571,7 @@ contract KeepERC20 is
             node.priority <= block.number,
             "KeepERC20::_executeExpirableApprove: Not yet."
         );
-        Task memory task = _tasks[tid];
+        Task storage task = _tasks[tid];
         require(
             task.taskType == TaskType.Expire,
             "KeepERC20::_executeExpirableApprove: Type invalid."
