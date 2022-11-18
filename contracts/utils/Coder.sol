@@ -2,7 +2,7 @@
 
 pragma solidity 0.8.17;
 
-contract Encoder {
+contract Coder {
     //============ Pagination ============//
 
     function encodePagination(uint256 lowerBound, uint256 upperBound)

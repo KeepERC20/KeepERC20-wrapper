@@ -9,7 +9,7 @@ let contract = {
     "token": null,
     "keepTokenFactory": null,
     "keepToken": null,
-    "encoder": null
+    "coder": null
 }
 
 async function set() {
@@ -41,8 +41,8 @@ async function attach() {
     contract.keepToken = await ethers.getContractAt("KeepERC20", address.KeepToken);
     console.log(" - complete");
 
-    process.stdout.write("Attach Encoder");
-    contract.encoder = await ethers.getContractAt("Encoder", address.Encoder);
+    process.stdout.write("Attach Coder");
+    contract.coder = await ethers.getContractAt("Coder", address.Coder);
     console.log(" - complete");
 }
 

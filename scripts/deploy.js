@@ -28,11 +28,11 @@ async function deploy() {
   contract.keepToken = await ethers.getContractAt("KeepERC20", keepTokenAddress);
   console.log(":\t", contract.keepToken.address);
 
-  process.stdout.write("Deploy Encoder");
-  const Encoder = await hre.ethers.getContractFactory("Encoder");
-  contract.encoder = await Encoder.deploy();
-  await contract.encoder.deployed();
-  console.log(":\t\t", contract.encoder.address);
+  process.stdout.write("Deploy Coder");
+  const Coder = await hre.ethers.getContractFactory("Coder");
+  contract.coder = await Coder.deploy();
+  await contract.coder.deployed();
+  console.log(":\t\t", contract.coder.address);
 
   fs.writeFileSync("address.json", JSON.stringify({
     "Owner": signer.owner.address,
@@ -42,7 +42,7 @@ async function deploy() {
     "Token": contract.token.address,
     "KeepTokenFactory": contract.keepTokenFactory.address,
     "KeepToken": contract.keepToken.address,
-    "Encoder": contract.encoder.address
+    "Coder": contract.coder.address
   }, null, 4));
 }
 
