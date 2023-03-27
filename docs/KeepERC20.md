@@ -59,6 +59,7 @@ Register Chainlink Automation via [https://automation.chain.link/mumbai].
 Returns active tasks only.
 
 
+Zero means inactive tid.
 
 ### `walletOf(address account) → address` (external)
 

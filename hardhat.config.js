@@ -21,7 +21,7 @@ module.exports = {
     hardhat: {
       forking: {
         enabled: true,
-        url: 'https://polygon-testnet.public.blastapi.io',
+        url: 'https://rpc.ankr.com/polygon_mumbai',
         // blockNumber: 24243078,
         accounts: [
           process.env.PRIVATE_KEY_OWNER,
@@ -41,7 +41,7 @@ module.exports = {
       ],
     },
     mumbai: {
-      url: 'https://polygon-testnet.public.blastapi.io',
+      url: 'https://rpc.ankr.com/polygon_mumbai',
       accounts: [
         process.env.PRIVATE_KEY_OWNER,
         process.env.PRIVATE_KEY_USER_1,
